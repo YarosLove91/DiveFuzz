@@ -31,3 +31,34 @@ services:
     extends:
       service: divefuzz
     command: ["probe"]
+
+  # ---------------------------------------------------------------------------
+  # XiangShan profile. Separate image: it carries a XiangShan Verilator
+  # emulator built from the pinned commit, so no DUT has to be mounted.
+  #
+  #   docker compose --profile xiangshan build          # hours: RTL build
+  #   docker compose --profile xiangshan run --rm xiangshan
+  #   docker compose --profile xiangshan run --rm xiangshan-run --config /work/my.yaml
+  #
+  # linux/amd64 is mandatory: Chisel 6.7.0 resolves firtool 1.62.0, which has
+  # no linux-arm64 binary, and XiangShan's diff references are x86-64 objects.
+  # ---------------------------------------------------------------------------
+  xiangshan:
+    profiles: ["xiangshan"]
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: docker/xiangshan.Dockerfile
+      platforms: ["linux/amd64"]
+      args:
+        DIVEFUZZ_BASE_IMAGE: divefuzz:amd64
+    image: divefuzz-xiangshan:latest
+    volumes:
+      - ./docker-xiangshan-out:/work
+    command: ["xiangshan-validate"]
+
+  xiangshan-run:
+    profiles: ["xiangshan"]
+    extends:
+      service: xiangshan
+    command: ["--help"]

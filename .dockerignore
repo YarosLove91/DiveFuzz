@@ -43,5 +43,7 @@ venv/
 CLAUDE.md
 LICENSE
 
-# Local smoke-test output
+# Local smoke-test / XiangShan-validation / unattended-run output
 docker-smoke-out*/
+docker-xiangshan-out*/
+divefuzz-run*/

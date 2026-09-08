@@ -153,6 +153,130 @@ replaced with the seed path wrapped in double quotes, so paths containing spaces
 are handled. A real DUT has never been built or executed in this container — see
 "Troubleshooting" below.
 
+### XiangShan inside Docker (`divefuzz-xiangshan:latest`)
+
+The core image ships no DUT. A second, optional image builds the **XiangShan
+Verilator emulator inside Docker** from the commit pinned by this repository's
+`dut/XiangShan` gitlink, so a server or cluster node needs no JDK, no `mill`, no
+Verilator, no Scala/Chisel and no XiangShan checkout of its own — only `docker`
+and `git`.
+
+```shell
+./docker/xiangshan-build.sh          # builds divefuzz:amd64, then divefuzz-xiangshan:latest
+./docker/xiangshan-validate-host.sh  # real end-to-end run against the built emulator
+```
+
+The final image is the core DiveFuzz image plus `/opt/xiangshan/build/emu` and
+upstream's `ready-to-run/` references, so **one** container generates the seeds
+and executes them on the DUT. The heavy build stage (JDK, mill, coursier cache,
+Verilator, tens of GB of generated C++) is discarded and never ships.
+
+Pinned: OpenJDK 21, mill `0.12.3` (from XiangShan's own `.mill-version`),
+Verilator `5.032`, XiangShan at its recorded gitlink, and every nested submodule
+(difftest, rocket-chip, ready-to-run, …) at the commits that XiangShan commit
+records — `docker/xiangshan-build.sh` reads the pin with `git ls-tree`, never a
+branch. What was actually built is recorded in `/opt/xiangshan/build-info.txt`
+inside the image.
+
+**`linux/amd64` only.** This is an upstream constraint, not a preference:
+XiangShan's `build.sc` pins Chisel 6.7.0, which resolves firtool 1.62.0, and the
+`org.chipsalliance:llvm-firtool:1.62.0` artifact (and the matching CIRCT
+release) ships `linux-x64`/`macos-x64`/`windows-x64` binaries only — there is no
+`linux-arm64` firtool, so there is no Chisel→Verilog step on arm64. Upstream's
+`ready-to-run/riscv64-spike-so` differential reference is likewise an x86-64
+shared object. On arm64 hosts everything runs under QEMU: correct, but slow.
+
+#### Two modes: laptop sanity vs. server/cluster
+
+The XiangShan RTL build is a server workload. Treat a laptop as a *sanity*
+environment, not the target one.
+
+**Local sanity mode** (any host, including Apple Silicon):
+
+```shell
+./docker/build.sh              # core image
+docker run --rm divefuzz:latest probe
+./docker/smoke-test-host.sh    # fixture DUT: proves container plumbing only
+```
+
+That is the whole laptop story. You *may* attempt the XiangShan build locally,
+but keep it gentle and expect it to be slow or resource-bound:
+
+```shell
+XS_BUILD_JOBS=2 XS_JVM_XMX=8G ./docker/xiangshan-build.sh
+```
+
+On an arm64 Mac this runs the entire amd64 toolchain under QEMU emulation.
+Chisel elaboration alone takes tens of minutes, and the Verilator + g++ phase is
+far longer; `XS_BUILD_JOBS=6` on a 15.6 GB Docker VM is already too aggressive,
+because each g++ job wants roughly 1 GB on top of the JVM. A full local build is
+**not** a supported path and its absence says nothing about the workflow.
+
+This was measured, not assumed: three attempts on a 24 GB Apple Silicon Mac all
+died of kernel/native OOM in the **firtool** step (Chisel elaboration itself
+succeeded twice). See §4.1 of
+[docs/docker-xiangshan.md](docs/docker-xiangshan.md) for the exact table. The
+emulator has therefore **not** been built or executed on this host; that
+validation belongs on a native `linux/amd64` node.
+
+**Server/cluster mode** (native `linux/amd64` — the supported path) is below.
+
+#### Running on a server or cluster node
+
+Nothing is installed on the host — no JDK, no `mill`, no Verilator, no Scala,
+no XiangShan checkout. The node needs only `docker` and `git`.
+
+```shell
+# 1. build the XiangShan-enabled image (once per node, or push it to a registry)
+XS_JVM_XMX=10G XS_BUILD_JOBS=16 ./docker/xiangshan-build.sh
+
+# 2. minimal validation against the built emulator (not the smoke fixture)
+./docker/xiangshan-validate-host.sh
+
+# 3. fuzzing run with your own config
+cp docker/xiangshan.yaml work/my_run.yaml     # edit seeds_num / ins_num / threads
+docker run --rm --platform linux/amd64 -v "$PWD/work:/work" \
+    divefuzz-xiangshan:latest --config /work/my_run.yaml
+
+# 4. unattended, no interactive shell, exits with the container's code
+./docker/do_all_and_shutdown.sh --config work/my_run.yaml --work /scratch/run
+```
+
+`do_all_and_shutdown.sh` builds the image if missing, mounts the work directory
+at `/work`, runs as your uid/gid so the artifacts belong to you, writes a
+transcript, and powers the node off only if you pass `--shutdown` (off by
+default).
+
+Artifacts land under the mounted work directory: `seeds/*.S`,
+`seeds/elf_file/*.elf`, `seeds/img_file/*.img`, and per-seed emulator logs in
+`outputs/`.
+
+Resource knobs (all are build-time environment variables for
+`xiangshan-build.sh`):
+
+| Knob | Purpose | Default | Guidance |
+| --- | --- | --- | --- |
+| `XS_JVM_XMX` | JVM heap for Chisel elaboration | `6G` | **≲ 60 % of the Docker VM memory**; `MinimalConfig` wants `10G` |
+| `XS_BUILD_JOBS` | `make -j` for Verilator/g++ | `$(nproc)` | ~1 GB RAM per job |
+| `XS_CONFIG` | XiangShan core configuration | `MinimalConfig` | `DefaultConfig` needs ~40 GB heap |
+| `XS_EMU_THREADS` | emulator threads | `1` | affects run speed, not build |
+| `XS_NUM_CORES` | cores in the SoC | `1` | more cores → much costlier build |
+
+Minimum recommended: **16 GB** RAM and **60 GB** free disk for `MinimalConfig`;
+64 GB / 200 GB+ for `DefaultConfig`.
+
+Two different OOMs are possible and they are fixed in *opposite* directions:
+no Java stack trace plus BuildKit `cannot allocate memory` is the **kernel** OOM
+killer (raise the Docker/VM memory), while `java.lang.OutOfMemoryError: Java
+heap space` means the heap is genuinely too small (raise `XS_JVM_XMX`).
+
+Full documentation — resources, YAML reference, cluster usage, corner cases and
+troubleshooting — is in [docs/docker-xiangshan.md](docs/docker-xiangshan.md).
+
+The `smoke` verb remains a fixture-based sanity check only; it proves container
+plumbing and is **not** evidence about XiangShan. Use `xiangshan-validate` for
+that.
+
 ### Spike discovery (README vs. code)
 
 The non-Docker instructions above talk about putting Spike on `PATH`, but

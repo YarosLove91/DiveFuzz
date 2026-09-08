@@ -1,0 +1,51 @@
+# Docker-safe DiveFuzz configuration for the XiangShan emulator that is built
+# INSIDE divefuzz-xiangshan:latest.
+#
+# Every path is a stable in-container path. There are no host-specific absolute
+# paths, and no DUT has to be mounted: the emulator lives at /opt/xiangshan.
+#
+# Used by docker/xiangshan-validate.sh. Copy it, edit the seed counts, and pass
+# your copy with `--config` for a real fuzzing run.
+
+dut_target:
+- name: "XiangShan (in-container Verilator emulator)"
+  # DUT-side parallelism: how many seeds run concurrently. Each emulator
+  # process is memory-hungry (~2 GB), so the validation config keeps it at 1.
+  # Raise it for a real fuzzing run, in step with the container's memory.
+  threads: 1
+  # Recorded for the report only. The exact commit that was built is in
+  # /opt/xiangshan/build-info.txt inside the image.
+  version: commit:d5cc24e
+  # Matches the differential reference selected in `cmd` below.
+  diff_ref: Spike
+  # dut_executor.py sets cwd to this before running `cmd`.
+  emu_path: /opt/xiangshan
+  # `$1` is replaced by dut_executor.py with the generated .img seed path,
+  # wrapped in double quotes. `./build/emu` and `./ready-to-run/...` are
+  # relative on purpose: they only resolve when cwd == emu_path.
+  #
+  # ready-to-run/riscv64-spike-so is upstream's prebuilt x86-64 differential
+  # reference. If you build a native arm64 image it cannot be loaded — use
+  # `--no-diff` instead and accept that no differential checking happens:
+  #   cmd: ./build/emu -i $1 --no-diff
+  cmd: ./build/emu -i $1 --diff ./ready-to-run/riscv64-spike-so
+
+seeds:
+- name: xiangshan
+  input: divefuzz
+  divefuzz:
+    # NOTE: gen_only is parsed by config/dut_config.py but is not referenced
+    # anywhere in the execution path, so it does NOT skip DUT execution.
+    gen_only: false
+    # Generator-side parallelism, independent of dut_target.threads above.
+    threads: 1
+    # Diversification via spike_engine — DiveFuzz's core behaviour.
+    dive_enable: true
+    mode: generate
+    # Mounted, persistent location: survives the container.
+    seeds_output: /work/seeds
+    seeds_num: 1
+    ins_num: 20
+    is_cva6: false
+    is_rv32: false
+    template_type: 'xiangshan'

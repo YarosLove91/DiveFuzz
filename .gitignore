@@ -16,4 +16,6 @@ fuzzer/*.yaml
 outputs
 .txt
 docker-smoke-out*/
+docker-xiangshan-out*/
+divefuzz-run*/
 CLAUDE.MD
