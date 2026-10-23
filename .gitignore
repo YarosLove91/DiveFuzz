@@ -19,3 +19,6 @@ docker-smoke-out*/
 docker-xiangshan-out*/
 divefuzz-run*/
 CLAUDE.MD
+work/outputs/*
+work/seeds/*
+*.log

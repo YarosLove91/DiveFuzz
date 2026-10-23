@@ -1,0 +1,33 @@
+# Прогон DiveFuzz против XiangShan (эмулятор внутри divefuzz-xiangshan:latest).
+# Настроено под сервер: 32 ядра, 125 ГБ RAM.
+#
+# Запуск:
+#   docker run --rm --platform linux/amd64 -v "$PWD/work:/work" \
+#       divefuzz-xiangshan:latest --config /work/xiangshan_fuzz.yaml
+
+dut_target:
+- name: "XiangShan (in-container Verilator emulator)"
+  # Параллельные процессы эмулятора; каждый ~2 ГБ RAM (16 × 2 = 32 ГБ — с запасом)
+  threads: 16
+  version: commit:d5cc24e
+  diff_ref: Spike
+  emu_path: /opt/xiangshan
+  cmd: ./build/emu -i $1 --diff ./ready-to-run/riscv64-spike-so
+
+seeds:
+- name: xiangshan_fuzz_100x100
+  input: divefuzz
+  divefuzz:
+    gen_only: false
+    # Параллелизм генератора (независим от threads выше)
+    threads: 16
+    # Диверсификация через spike_engine — ядро DiveFuzz
+    dive_enable: true
+    mode: generate
+    seeds_output: /work/seeds
+    # 100 сидов по 100 инструкций; для longer run: seeds_num 1000+
+    seeds_num: 100
+    ins_num: 100
+    is_cva6: false
+    is_rv32: false
+    template_type: 'xiangshan'

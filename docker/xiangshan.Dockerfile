@@ -105,11 +105,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cmake=3.31.6-2 \
         git=1:2.47.3-0+deb13u1 \
         time=1.9-0.2 \
-        curl=8.14.1-2+deb13u4 \
+        curl=8.14.1-2+deb13u7 \
         ca-certificates=20250419 \
         python3=3.13.5-1 \
         python-is-python3=3.13.3-1 \
-        libsqlite3-dev=3.46.1-7+deb13u1 \
+        libsqlite3-dev=3.46.1-7+deb13u2 \
         zlib1g-dev=1:1.3.dfsg+really1.3.1-1+b1 \
         libzstd-dev=1.5.7+dfsg-1 \
     && rm -rf /var/lib/apt/lists/*
@@ -259,7 +259,7 @@ USER root
 # for ChiselDB, -lz and -lzstd for compressed images). libstdc++6 is already
 # present in the core image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libsqlite3-0=3.46.1-7+deb13u1 \
+        libsqlite3-0=3.46.1-7+deb13u2 \
         zlib1g=1:1.3.dfsg+really1.3.1-1+b1 \
         libzstd1=1.5.7+dfsg-1 \
     && rm -rf /var/lib/apt/lists/*
